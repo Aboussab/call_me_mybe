@@ -25,8 +25,7 @@ class Parsing:
             print("there is an error while opening the fill")
         except json.JSONDecodeError:
             print("you should pass a file with the json format")
-        # unpack
-        if isinstance(data, list) and all(isinstance(items,dict) for items in data):
+        if isinstance(data, list) and all(isinstance(n, dict) for n in data):
             print("pleas make sure the data passed is correct")
         return data
 
