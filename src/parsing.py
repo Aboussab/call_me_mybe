@@ -3,18 +3,15 @@ import sys
 
 
 class Parsing:
-    def __init__(self, args):
-        "docstring:"
-        for i, arg in enumerate(args):
-            if arg == "--input":
-                self.promts_file = args[i + 1]
-            elif arg == "--functions_definition":
-                self.functions_def_file = args[i + 1]
-            elif arg == "--output":
-                self.output_file = args[i + 1]
-            else:
-                print("UNKNOW_FLAG: pleas make sure to give the right flags")
-                sys.exit(0)
+    # def __init__(self, args):
+    #    "docstring:"
+    #    for i, arg in enumerate(args):
+    #        if arg == "--input":
+    #            self.promts_file = args[i + 1]
+    #        elif arg == "--functions_definition":
+    #            self.functions_def_file = args[i + 1]
+    #        elif arg == "--output":
+    #            self.output_file = args[i + 1]
 
     def loading(file):
         "docstring"
@@ -28,9 +25,3 @@ class Parsing:
         if isinstance(data, list) and all(isinstance(n, dict) for n in data):
             print("pleas make sure the data passed is correct")
         return data
-
-    def parse_functions_definition(path):
-        pass
-
-    def parse_prompts(path):
-        pass
