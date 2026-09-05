@@ -1,4 +1,5 @@
-from modules import FunctionsDefinition
+from .modules import FunctionsDefinition, ParametreType, FunctionsCallResult
+from .modules import Prompt
 from typing import Any
 from pydantic import ValidationError
 from sys import exit
@@ -8,22 +9,37 @@ import json
 class Parsing():
 
     def __init__(self):
-        self.promts_fi = None
-        self.functions_def_file = None
-        self.output_file = None
+        """
+        lool
+        """
+        self.promts_file: ParametreType | str | None = None
+        self.functions_def_file: FunctionsDefinition | str | None = None
+        self.output_file: FunctionsCallResult | str | None = None
 
-    def parser(self, args):
+    def parser(self, args: list) -> None:
         """
         parser is a fct that take the argument passed to the programe
-        and check if every  
+        and check if every
         """
         for i, arg in enumerate(args):
             if arg == "--input":
-                self.promts_fi = args[i + 1]
+                self.promts_file = args[i + 1]
             elif arg == "--functions_definition":
                 self.functions_def_file = args[i + 1]
             elif arg == "--output":
                 self.output_file = args[i + 1]
+        if (
+             not self.promts_file or not self.functions_def_file
+             or not self.output_file
+             ):
+            print("pleas make sure to pass the right argument with\
+the following flags:\
+\n[--functions_definition <function_definition_file>] [--input <input_file>] [--\
+output <output_file>]\
+\n--functions_definition data/input/functions_definition.json\
+\n--input data/input/function_calling_tests.json\
+\n--output data/output/function_calls.json")
+            exit(1)
 
     def loading(file: str) -> list[Any]:
         """
@@ -46,16 +62,34 @@ class Parsing():
             exit(1)
         return data
 
-    def validation(self, path: str) -> list:
+    def validation_v2(self, path: str, n: int) -> list:
+        """
+        lool
+        """
         file = self.loading(path)
-
-        file_as_list = []
-        for entry in file:
-            try:
-                parsed = FunctionsDefinition(**entry)
-                file_as_list.append(parsed)
-            except ValidationError:
-                print("ERROR DETCTED: Pleas make sure that the data in\
+        if (n == 1):
+            file_as_list = []
+            for entry in file:
+                try:
+                    parsed = Prompt(**entry)
+                    file_as_list.append(parsed)
+                except ValidationError:
+                    print(f"ERROR DETECTED IN {path.split("/")[-1]}: Pleas\
+make sure that the data in your json file is on the correct format.")
+                    exit(1)
+        elif (n == 2):
+            file_as_list = []
+            for entry in file:
+                try:
+                    parsed = FunctionsDefinition(**entry)
+                    file_as_list.append(parsed)
+                except ValidationError:
+                    print("ERROR DETCTED: Pleas make sure that the data in\
 your json file is on the correct format.")
-                exit(1)
-        return
+                    exit(1)
+        return (file_as_list)
+
+    def validation_v1(self) -> None:
+        #self.validation_v2(self.promts_file, 1)
+        #self.validation_v2(self.functions_def_file, 2)
+        pass
