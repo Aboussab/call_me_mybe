@@ -15,7 +15,7 @@
     }
   },
   {
-    "name": "fn_greet",
+    "name": "2n_greet",
     "description": "Generate a greeting message for a person by name.",
     "parameters": {
       "name": {
