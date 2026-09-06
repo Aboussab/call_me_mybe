@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Literal, Any
+from typing import Literal, Union
 
 
 class Prompt(BaseModel):
@@ -40,4 +40,4 @@ class FunctionsCallResult(BaseModel):
 
     prompt: str = Field(min_length=1)
     name: str = Field(min_length=1)
-    parameters: dict[str, Any]
+    parameters: dict[str, Union[str, float, bool]]
