@@ -116,26 +116,28 @@ class ConstrainedDecoding():
             f"Function: {function_name}\n"
             f"Parameter \"{param_name}\" (type: {param_type}):"
         )
-    
+
     def generate_parameter_value(self, context_ids, param_type):
         pass
 
-    def _generate_number(self, user_promt: list):
-        allowed_chars = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "-"]
+    def _generate_number(self, user_prompt: list) -> float:
+        """Generate a JSON-number-shaped value, token by token, using constrained decoding."""
         generated_answer = ""
-        current_token_ids = list(user_promt)
-        i = 0
-        max_token = 40
-        for i in range(max_token):
+        current_token_ids = list(user_prompt)
+
+        max_steps = 40
+        for _ in range(max_steps):
             logits = self.model.get_logits_from_input_ids(current_token_ids)
 
             best_token_id = None
             best_score = float("-inf")
+
             for token_id, raw_token in self.id_to_token.items():
                 token_text = self._clean_token_text(raw_token)
-                if (not all(char in allowed_chars for char in token_text)):
-                    continue
+
                 if token_text == "":
+                    continue
+                if not self._is_valid_number_continuation(generated_answer, token_text):
                     continue
 
                 score = logits[token_id]
@@ -155,9 +157,34 @@ class ConstrainedDecoding():
         try:
             return float(generated_answer)
         except ValueError:
-            raise ValueError(
-                f"Generated text is not a valid number: '{generated_answer}'"
-            )
+            raise ValueError(f"Generated text is not a valid number: '{generated_answer}'")
+
+    def _is_valid_number_continuation(self, generated_so_far: str, token_text: str) -> bool:
+        """Check if appending token_text to generated_so_far keeps it a valid,
+        still-incomplete JSON number."""
+        allowed_chars = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "-"}
+
+        for char in token_text:
+            if char not in allowed_chars:
+                return False
+
+        candidate = generated_so_far + token_text
+
+        # '-' allowed only as the very first character
+        minus_count = candidate.count("-")
+        if minus_count > 1:
+            return False
+        if minus_count == 1 and not candidate.startswith("-"):
+            return False
+
+        # '.' allowed at most once, and never as the very first character
+        dot_count = candidate.count(".")
+        if dot_count > 1:
+            return False
+        if dot_count == 1 and (candidate.startswith(".") or candidate.startswith("-.")):
+            return False
+
+        return True
 
     def _generate_boolean(self, prompt_token_id: list) -> bool:
         """
@@ -206,5 +233,44 @@ class ConstrainedDecoding():
             f"got partial text: '{generated_answer}'"
         )
 
-#     def _generate_string():
-#         pass
+    def _generate_string(self, user_prompt: list) -> str:
+        """Generate a free-form string value, stopping once a closing quote appears."""
+        generated_answer = ""
+        current_token_ids = list(user_prompt)
+
+        max_steps = 40
+        for _ in range(max_steps):
+            logits = self.model.get_logits_from_input_ids(current_token_ids)
+
+            best_token_id = None
+            best_score = float("-inf")
+
+            for token_id, raw_token in self.id_to_token.items():
+                token_text = self._clean_token_text(raw_token)
+
+                if token_text == "":
+                    continue
+
+                score = logits[token_id]
+                if score > best_score:
+                    best_score = score
+                    best_token_id = token_id
+
+            if best_token_id is None:
+                raise ValueError(
+                    f"Could not continue generating a string from partial "
+                    f"text: '{generated_answer}'"
+                )
+
+            token_text = self._clean_token_text(self.id_to_token[best_token_id])
+
+            if '"' in token_text:
+                # stop at the closing quote - keep only what came before it
+                generated_answer += token_text.split('"')[0]
+                return generated_answer
+
+            generated_answer += token_text
+            current_token_ids.append(best_token_id)
+
+        # ran out of steps without ever seeing a closing quote
+        return generated_answer
