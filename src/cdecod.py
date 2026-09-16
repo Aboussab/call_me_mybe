@@ -63,55 +63,72 @@ class ConstrainedDecoding():
             parameters=parameters,
         )
 
-    def building_prompt(self, user_prompt):
+    def building_prompt(self, user_prompt: str) -> str:
         """
-        this fct porpuse is to give the llm a specfique prompt where i put it
-        in the context about what i need
-
-        :param self: here i pass self to have this methode as instance method.
-        :param user_prompt: this is the specifique methode a user sent to me
-            to answer on it.
+        Build the prompt used to select the single best-matching function
+        for a user question.
         """
         fn_lines = "\n".join(
-            f"- {fn.name}: {fn.description}" for fn in self.functions_def
-            )
+            f"- {fn.name}({', '.join(p.name for p in fn.parameters)}): "
+            f"{fn.description}"
+            for fn in self.functions_def
+        )
         return (
-            "You are a function-calling assistant. Given a user question and"
-            " a list of available functions, choose the single function"
-            " that best answers the question.\n\n"
-            f"Available functions: \n{fn_lines}\n\n"
-            f"User question: {user_prompt}\n\n"
-            "Function name:"
-            )
-
+            "You are a function-calling assistant. Your ONLY job is to pick "
+            "the single function name that best answers the user's question.\n"
+            "Answer with the function name ONLY — no punctuation, no "
+            "explanation, no extra words.\n\n"
+            "Available functions:\n"
+            f"{fn_lines}\n\n"
+            "Examples:\n"
+            "Question: What is the sum of 4 and 9?\n"
+            "Answer: fn_add_numbers\n\n"
+            "Question: Say hello to Alice\n"
+            "Answer: fn_greet\n\n"
+            f"Question: {user_prompt}\n"
+            "Answer:"
+        )
+    
+    
     def build_parameter_prompt(
-        self, user_question: str, function_name: str,
-        param_name: str, param_type: str
+        self,
+        user_question: str,
+        function_name: str,
+        param_name: str,
+        param_type: str,
+        filled_params: dict | None = None,
     ) -> str:
         """
-        Build the prompt text used to generate the value of one specific
+        Build the prompt used to generate the value of one specific
         parameter for the already-selected function.
-
-        :param self: instance method.
-        :param user_question: the original natural-language prompt from the user.
-        :param function_name: the name of the function already selected
-            (e.g. "fn_add_numbers").
-        :param param_name: the name of the parameter currently being filled
-            in (e.g. "a").
-        :param param_type: the declared type of this parameter
-            (e.g. "number", "string", "boolean").
-        :return: the full prompt text to encode and feed into the
-            appropriate _generate_* method.
+    
+        :param filled_params: parameters of this same function already
+            resolved in previous calls (name -> value), so the model knows
+            not to repeat a value it already produced for another parameter.
         """
+        filled = filled_params or {}
+        filled_lines = (
+            "\n".join(f'- "{k}" = {v}' for k, v in filled.items())
+            if filled else "(none yet)"
+        )
         return (
-            "You are a function-calling assistant. You have already chosen "
-            "which function to call. Now generate the value for one "
-            "specific parameter of that function, based on the user's "
-            "question.\n\n"
+            "You are a function-calling assistant. A function has already "
+            "been selected. Extract ONE parameter's value directly from the "
+            "user's question. Do not compute, guess, or invent a value that "
+            "is not grounded in the question text.\n"
+            "Answer with the raw value ONLY — no quotes, no units, no "
+            "explanation.\n\n"
             f"User question: {user_question}\n"
-            f"Function: {function_name}\n"
-            f"Parameter name: \"{param_name}\"\n"
-            f"Parameter type: {param_type}\n\n"
+            f"Selected function: {function_name}\n"
+            f"Parameters already filled for this function:\n{filled_lines}\n\n"
+            f"Now provide the value for parameter \"{param_name}\" "
+            f"(type: {param_type}).\n\n"
+            "Examples:\n"
+            "Question: What is the sum of 4 and 9?\n"
+            "Parameter \"a\" (number): 4\n"
+            "Parameter \"b\" (number), already filled: a = 4: 9\n\n"
+            "Question: Say hello to Alice\n"
+            "Parameter \"name\" (string): Alice\n\n"
             f"Value for \"{param_name}\":"
         )
 
