@@ -4,6 +4,7 @@ from .parsing import Parsing
 from .cdecod import ConstrainedDecoding
 from .modules import FunctionsCallResult
 from pathlib import Path
+import time
 import json
 
 
@@ -71,7 +72,10 @@ def main() -> None:
 
 if __name__ == "__main__":
     try:
+        start = time.perf_counter()
         main()
+        end = time.perf_counter()
+        print("Time taken:", end - start, "seconds")
     except Exception as e:
         print(f"Fatal error: {e}")
         exit(1)

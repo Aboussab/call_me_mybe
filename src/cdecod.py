@@ -39,6 +39,7 @@ class ConstrainedDecoding():
                 param_name=param_name,
                 param_type=param_schema.type,
                 filled_params=parameters,
+                param_description=getattr(param_schema, "description", None),
             )
             param_tokens = self.model.encode(param_prompt)
             param_token_ids = param_tokens[0].tolist()
@@ -98,27 +99,34 @@ class ConstrainedDecoding():
             param_name: str,
             param_type: str,
             filled_params: dict | None = None,
+            param_description: str | None = None,
             ) -> str:
-
         """
         Build the prompt used to generate the value of one specific
         parameter for the already-selected function.
         :param filled_params: parameters of this same function already
-            resolved in previous calls (name -> value), so the model knows
-            not to repeat a value it already produced for another parameter.
+            resolved in previous calls (name -> value).
+        :param param_description: optional human-readable description of
+            this parameter, if the schema provides one — critical for
+            semantically ambiguous parameters like "regex" or "replacement".
         """
         filled = filled_params or {}
         filled_lines = (
             "\n".join(f'- "{k}" = {v}' for k, v in filled.items())
             if filled else "(none yet)")
+        description_line = (
+            f'Parameter meaning: {param_description}\n' if param_description else ""
+        )
 
         base = (
             "You are a function-calling assistant. A function has already "
-            "been selected. Extract ONE parameter's value directly from the "
-            "user's question. Do not compute, guess, or invent a value that "
-            "is not grounded in the question text.\n\n"
+            "been selected. Extract or derive ONE parameter's value from "
+            "the user's question below. The value must be grounded in the "
+            "question text — never copy a number or word from these "
+            "instructions or from any example.\n\n"
             f"User question: {user_question}\n"
             f"Selected function: {function_name}\n"
+            f"{description_line}"
             f"Parameters already filled for this function:\n{filled_lines}\n\n"
             f"Now provide the value for parameter \"{param_name}\" "
             f"(type: {param_type}).\n\n"
@@ -128,19 +136,18 @@ class ConstrainedDecoding():
             return base + (
                 "Answer with the value wrapped in double quotes, "
                 "no explanation.\n\n"
-                "Examples:\n"
-                "Question: Say hello to Alice\n"
-                "Parameter \"name\" (string): \"Alice\"\n\n"
-                f"Value for \"{param_name}\": \""   # <-- primed opening quote
+                f"Value for \"{param_name}\": \""
+            )
+
+        if param_type == "number":
+            return base + (
+                "Answer with the number copied exactly from the question "
+                "above, as digits only — no words, no quotes, no units.\n\n"
+                f"Value for \"{param_name}\":"
             )
 
         return base + (
-            "Answer with the raw value ONLY — no quotes, no units, no "
-            "explanation.\n\n"
-            "Examples:\n"
-            "Question: What is the sum of 4 and 9?\n"
-            "Parameter \"a\" (number): 4\n"
-            "Parameter \"b\" (number), already filled: a = 4: 9\n\n"
+            "Answer with the raw value ONLY — no quotes, no explanation.\n\n"
             f"Value for \"{param_name}\":"
         )
 
@@ -236,9 +243,13 @@ class ConstrainedDecoding():
         generated_answer = ""
         current_token_ids = list(user_prompt)
 
-        max_steps = 40
+        max_steps = 20
         for _ in range(max_steps):
             logits = self.model.get_logits_from_input_ids(current_token_ids)
+
+            # unconstrained top choice — tells us what the model actually
+            # wants to do next, digit or not
+            global_best_id = max(range(len(logits)), key=lambda i: logits[i])
 
             best_token_id = None
             best_score = float("-inf")
@@ -247,7 +258,7 @@ class ConstrainedDecoding():
                 token_text = self._clean_token_text(raw_token)
 
                 if token_text == "":
-                    continue    
+                    continue
                 if not self._check_if_its_a_valid_number(generated_answer, token_text):
                     continue
 
@@ -255,6 +266,12 @@ class ConstrainedDecoding():
                 if score > best_score:
                     best_score = score
                     best_token_id = token_id
+
+            has_digit = any(c.isdigit() for c in generated_answer)
+            if has_digit and global_best_id != best_token_id:
+                global_best_text = self._clean_token_text(self.id_to_token[global_best_id])
+                if not self._check_if_its_a_valid_number(generated_answer, global_best_text):
+                    break  # model wants to stop and we have a usable number
 
             if best_token_id is None:
                 break
