@@ -68,8 +68,9 @@ class ConstrainedDecoding():
         Build the prompt used to select the single best-matching function
         for a user question.
         """
+
         fn_lines = "\n".join(
-            f"- {fn.name}({', '.join(p.name for p in fn.parameters)}): "
+            f"- {fn.name}({', '.join(p for p in fn.parameters)}): "
             f"{fn.description}"
             for fn in self.functions_def
         )
@@ -88,20 +89,19 @@ class ConstrainedDecoding():
             f"Question: {user_prompt}\n"
             "Answer:"
         )
-    
-    
+
     def build_parameter_prompt(
-        self,
-        user_question: str,
-        function_name: str,
-        param_name: str,
-        param_type: str,
-        filled_params: dict | None = None,
-    ) -> str:
+            self,
+            user_question: str,
+            function_name: str,
+            param_name: str,
+            param_type: str,
+            filled_params: dict | None = None,
+            ) -> str:
+        
         """
         Build the prompt used to generate the value of one specific
         parameter for the already-selected function.
-    
         :param filled_params: parameters of this same function already
             resolved in previous calls (name -> value), so the model knows
             not to repeat a value it already produced for another parameter.
@@ -109,8 +109,7 @@ class ConstrainedDecoding():
         filled = filled_params or {}
         filled_lines = (
             "\n".join(f'- "{k}" = {v}' for k, v in filled.items())
-            if filled else "(none yet)"
-        )
+            if filled else "(none yet)")
         return (
             "You are a function-calling assistant. A function has already "
             "been selected. Extract ONE parameter's value directly from the "
@@ -130,7 +129,7 @@ class ConstrainedDecoding():
             "Question: Say hello to Alice\n"
             "Parameter \"name\" (string): Alice\n\n"
             f"Value for \"{param_name}\":"
-        )
+            )
 
     def _find_function_by_name(self, name: str) -> FunctionsDefinition:
         """
