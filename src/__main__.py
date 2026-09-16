@@ -1,6 +1,6 @@
 from sys import argv
 from llm_sdk import Small_LLM_Model
-from .parsing import Parsing, ValidationType
+from .parsing import Parsing
 from .cdecod import ConstrainedDecoding
 from .modules import FunctionsCallResult
 from pathlib import Path
@@ -46,9 +46,9 @@ def main() -> None:
     parsing = Parsing()
     parsing.parser(argv[1:])
 
-    prompts = parsing.validation_v2(parsing.promts_file, ValidationType.PROMPT)
+    prompts = parsing.validation_v2(parsing.promts_file, 1)
     functions = parsing.validation_v2(
-        parsing.functions_def_file, ValidationType.FUNCTION_DEFINITION
+        parsing.functions_def_file, 2
     )
 
     model = Small_LLM_Model()

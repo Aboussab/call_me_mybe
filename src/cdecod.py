@@ -38,6 +38,7 @@ class ConstrainedDecoding():
                 function_name=function_name,
                 param_name=param_name,
                 param_type=param_schema.type,
+                filled_params=parameters,
             )
             param_tokens = self.model.encode(param_prompt)
             param_token_ids = param_tokens[0].tolist()
@@ -98,7 +99,7 @@ class ConstrainedDecoding():
             param_type: str,
             filled_params: dict | None = None,
             ) -> str:
-        
+
         """
         Build the prompt used to generate the value of one specific
         parameter for the already-selected function.
@@ -110,26 +111,38 @@ class ConstrainedDecoding():
         filled_lines = (
             "\n".join(f'- "{k}" = {v}' for k, v in filled.items())
             if filled else "(none yet)")
-        return (
+
+        base = (
             "You are a function-calling assistant. A function has already "
             "been selected. Extract ONE parameter's value directly from the "
             "user's question. Do not compute, guess, or invent a value that "
-            "is not grounded in the question text.\n"
-            "Answer with the raw value ONLY — no quotes, no units, no "
-            "explanation.\n\n"
+            "is not grounded in the question text.\n\n"
             f"User question: {user_question}\n"
             f"Selected function: {function_name}\n"
             f"Parameters already filled for this function:\n{filled_lines}\n\n"
             f"Now provide the value for parameter \"{param_name}\" "
             f"(type: {param_type}).\n\n"
+        )
+
+        if param_type == "string":
+            return base + (
+                "Answer with the value wrapped in double quotes, "
+                "no explanation.\n\n"
+                "Examples:\n"
+                "Question: Say hello to Alice\n"
+                "Parameter \"name\" (string): \"Alice\"\n\n"
+                f"Value for \"{param_name}\": \""   # <-- primed opening quote
+            )
+
+        return base + (
+            "Answer with the raw value ONLY — no quotes, no units, no "
+            "explanation.\n\n"
             "Examples:\n"
             "Question: What is the sum of 4 and 9?\n"
             "Parameter \"a\" (number): 4\n"
             "Parameter \"b\" (number), already filled: a = 4: 9\n\n"
-            "Question: Say hello to Alice\n"
-            "Parameter \"name\" (string): Alice\n\n"
             f"Value for \"{param_name}\":"
-            )
+        )
 
     def _find_function_by_name(self, name: str) -> FunctionsDefinition:
         """
