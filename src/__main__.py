@@ -1,12 +1,27 @@
-from sys import exit, argv
-from .parsing import Parsing
-from .modules import FunctionsCallResult
+from sys import argv
 from llm_sdk import Small_LLM_Model
+from .parsing import Parsing, ValidationType
 from .cdecod import ConstrainedDecoding
-import time
+from .modules import FunctionsCallResult
+from pathlib import Path
 import json
-import sys
-import traceback
+
+
+def transfer_list_to_file(
+        result_to: list[FunctionsCallResult], path: str) -> None:
+    """
+    Write a list of FunctionsCallResult objects out to a JSON file.
+
+    :param result_to: the list of validated results to write.
+    :param path: the destination file path.
+    """
+    all_result = [x.model_dump() for x in result_to]
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+
+    with open(path, "w") as file:
+        json.dump(all_result, file, indent=2)
+        file.write("\n")
 
 
 def write_results(
@@ -23,30 +38,40 @@ def write_results(
         exit(1)
 
 
-def main():
+def main() -> None:
+    """
+    Entry point: parse CLI args, load and validate input files, run the
+    constrained-decoding pipeline over every prompt, and write the results.
+    """
+    parsing = Parsing()
+    parsing.parser(argv[1:])
 
-    parse = Parsing()
-    parse.parser(sys.argv)
-    parse.validation_v1()
+    prompts = parsing.validation_v2(parsing.promts_file, ValidationType.PROMPT)
+    functions = parsing.validation_v2(
+        parsing.functions_def_file, ValidationType.FUNCTION_DEFINITION
+    )
+
     model = Small_LLM_Model()
+    decoder = ConstrainedDecoding(model, functions)
 
-    constran = ConstrainedDecoding(model, parse.functions_def_file)
+    results: list[FunctionsCallResult] = []
+    for prompt_entry in prompts:
+        try:
+            result = decoder.run(prompt_entry.prompt)
+            results.append(result)
+        except ValueError as e:
+            print(
+                f"Warning: skipped prompt '{prompt_entry.prompt}' "
+                f"due to an error: {e}"
+            )
 
-    user_prompt = "where is marthen lother king?"
-    token_id = model.encode(f"You are a function-calling assistant. Given a user question and a list of available functions, choose the single function that best answers\
- the question.\nif there is none propper answer return a "fn_none"\n Available functions:\n{parse.functions_def_file}\n\n User question: {user_prompt}\n\nFunction name:")[0].tolist()
-    start = time.perf_counter()
-    print(constran.constrain_fct_name(token_id))
-    end = time.perf_counter()
-    print("Time taken:", end - start, "seconds")
+    transfer_list_to_file(results, parsing.output_file)
+    print(f"Done. Wrote {len(results)} result(s) to {parsing.output_file}")
+
 
 if __name__ == "__main__":
     try:
-
         main()
-        print("everythings is okey")
     except Exception as e:
-        print(f"ERROR: {e}")
-        traceback.print_exc()
-    except Exception as e:
-        print(e)
+        print(f"Fatal error: {e}")
+        exit(1)

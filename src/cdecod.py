@@ -1,7 +1,6 @@
-from abc import ABC
 import json
 from llm_sdk import Small_LLM_Model
-from .modules import FunctionsDefinition
+from .modules import FunctionsDefinition, FunctionsCallResult
 
 
 class ConstrainedDecoding():
@@ -12,9 +11,57 @@ class ConstrainedDecoding():
         self.functions_def = functions_def
         self.id_to_token = self._load_vocab()
 
-    def fct_bach_ghan9ado_jsonformat():
-        """this fct porpuse is to guid the output to print a json format"""
-        pass
+    def run(self, prompt: str) -> FunctionsCallResult:
+        """
+        Run the full constrained-decoding pipeline for one user prompt:
+        select the matching function, generate a value for each of its
+        parameters, and return the assembled result.
+
+        :param self: instance method.
+        :param prompt: the original natural-language user prompt.
+        :return: a validated FunctionsCallResult ready to be written out.
+        """
+        # step 1: select which function to call
+        selection_prompt = self.building_prompt(prompt)
+        selection_tokens = self.model.encode(selection_prompt)
+        selection_token_ids = selection_tokens[0].tolist()
+        function_name = self.constrain_fct_name(selection_token_ids)
+
+        # step 2: look up the full schema for that function
+        selected_function = self._find_function_by_name(function_name)
+
+        # step 3: generate a value for each parameter, one at a time
+        parameters: dict[str, str | float | bool] = {}
+        for param_name, param_schema in selected_function.parameters.items():
+            param_prompt = self.build_parameter_prompt(
+                user_question=prompt,
+                function_name=function_name,
+                param_name=param_name,
+                param_type=param_schema.type,
+            )
+            param_tokens = self.model.encode(param_prompt)
+            param_token_ids = param_tokens[0].tolist()
+
+            if param_schema.type == "number":
+                value = self._generate_number(param_token_ids)
+            elif param_schema.type == "boolean":
+                value = self._generate_boolean(param_token_ids)
+            elif param_schema.type == "string":
+                value = self._generate_string(param_token_ids)
+            else:
+                raise ValueError(
+                    f"Unsupported parameter type '{param_schema.type}' "
+                    f"for parameter '{param_name}'"
+                )
+
+            parameters[param_name] = value
+
+        # step 4: assemble and validate the final result
+        return FunctionsCallResult(
+            prompt=prompt,
+            name=function_name,
+            parameters=parameters,
+        )
 
     def building_prompt(self, user_prompt):
         """
@@ -25,15 +72,67 @@ class ConstrainedDecoding():
         :param user_prompt: this is the specifique methode a user sent to me
             to answer on it.
         """
-
+        fn_lines = "\n".join(
+            f"- {fn.name}: {fn.description}" for fn in self.functions_def
+            )
         return (
             "You are a function-calling assistant. Given a user question and"
             " a list of available functions, choose the single function"
             " that best answers the question.\n\n"
-            f"Available functions:\n{self.functions_def}\n\n"
+            f"Available functions: \n{fn_lines}\n\n"
             f"User question: {user_prompt}\n\n"
             "Function name:"
             )
+
+    def build_parameter_prompt(
+        self, user_question: str, function_name: str,
+        param_name: str, param_type: str
+    ) -> str:
+        """
+        Build the prompt text used to generate the value of one specific
+        parameter for the already-selected function.
+
+        :param self: instance method.
+        :param user_question: the original natural-language prompt from the user.
+        :param function_name: the name of the function already selected
+            (e.g. "fn_add_numbers").
+        :param param_name: the name of the parameter currently being filled
+            in (e.g. "a").
+        :param param_type: the declared type of this parameter
+            (e.g. "number", "string", "boolean").
+        :return: the full prompt text to encode and feed into the
+            appropriate _generate_* method.
+        """
+        return (
+            "You are a function-calling assistant. You have already chosen "
+            "which function to call. Now generate the value for one "
+            "specific parameter of that function, based on the user's "
+            "question.\n\n"
+            f"User question: {user_question}\n"
+            f"Function: {function_name}\n"
+            f"Parameter name: \"{param_name}\"\n"
+            f"Parameter type: {param_type}\n\n"
+            f"Value for \"{param_name}\":"
+        )
+
+    def _find_function_by_name(self, name: str) -> FunctionsDefinition:
+        """
+        Look up the full FunctionsDefinition object matching the given
+        function name, out of the ones this decoder was built with. 
+        :param self: instance method.
+        :param name: the function name to look up (e.g. "fn_add_numbers"),
+            expected to be one of the names in self.functions_def.
+        :return: the matching FunctionsDefinition object.
+        :raises ValueError: if no function with this name exists in
+            self.functions_def.
+        """ 
+        for fn in self.functions_def:
+            if fn.name == name:
+                return fn
+        raise ValueError(
+            f"Selected function '{name}' was not found in the known "
+            f"function definitions."
+        )
 
 # -----------------from here we have the fct_constraining.---------------------
     def constrain_fct_name(self, prompt_token_ids: list[int]) -> str:
@@ -44,7 +143,7 @@ class ConstrainedDecoding():
 
         fn_listed = [
             fn.name for fn in self.functions_def
-            ] + ["fn_none"]
+            ]
 
         generated_name = ""
         current_token_ids = list(prompt_token_ids)
@@ -103,23 +202,6 @@ class ConstrainedDecoding():
 
 # -----------------from heere we have the parameter constrain:-----------------
 
-    def build_parameter_prompt(
-            self,
-            user_question: str,
-            function_name: str,
-            param_name: str,
-            param_type: str,
-            ) -> str:
-        """Build the prompt text used to generate one parameter's value."""
-        return (
-            f"Question: {user_question}\n"
-            f"Function: {function_name}\n"
-            f"Parameter \"{param_name}\" (type: {param_type}):"
-        )
-
-    def generate_parameter_value(self, context_ids, param_type):
-        pass
-
     def _generate_number(self, user_prompt: list) -> float:
         """Generate a JSON-number-shaped value, token by token, using constrained decoding."""
         generated_answer = ""
@@ -136,8 +218,8 @@ class ConstrainedDecoding():
                 token_text = self._clean_token_text(raw_token)
 
                 if token_text == "":
-                    continue
-                if not self._is_valid_number_continuation(generated_answer, token_text):
+                    continue    
+                if not self._check_if_its_a_valid_number(generated_answer, token_text):
                     continue
 
                 score = logits[token_id]
@@ -159,7 +241,7 @@ class ConstrainedDecoding():
         except ValueError:
             raise ValueError(f"Generated text is not a valid number: '{generated_answer}'")
 
-    def _is_valid_number_continuation(self, generated_so_far: str, token_text: str) -> bool:
+    def _check_if_its_a_valid_number(self, generated_so_far: str, token_text: str) -> bool:
         """Check if appending token_text to generated_so_far keeps it a valid,
         still-incomplete JSON number."""
         allowed_chars = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "-"}
@@ -177,7 +259,6 @@ class ConstrainedDecoding():
         if minus_count == 1 and not candidate.startswith("-"):
             return False
 
-        # '.' allowed at most once, and never as the very first character
         dot_count = candidate.count(".")
         if dot_count > 1:
             return False
@@ -206,7 +287,7 @@ class ConstrainedDecoding():
             best_score = float("-inf")
 
             for token_id, raw_token in self.id_to_token.items():
-                token_text = self._clean_token_text(raw_token) # why did we check this and knowing that changing a token one char will change it id 
+                token_text = self._clean_token_text(raw_token)
                 argument = generated_answer + token_text
 
                 it_fit = any(
@@ -265,12 +346,10 @@ class ConstrainedDecoding():
             token_text = self._clean_token_text(self.id_to_token[best_token_id])
 
             if '"' in token_text:
-                # stop at the closing quote - keep only what came before it
                 generated_answer += token_text.split('"')[0]
                 return generated_answer
 
             generated_answer += token_text
             current_token_ids.append(best_token_id)
 
-        # ran out of steps without ever seeing a closing quote
         return generated_answer
